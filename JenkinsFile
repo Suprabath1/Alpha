@@ -1,0 +1,53 @@
+pipeline {
+  agent {
+    node {label 'jdk8 && git && npm && alpha'}}
+
+  options {
+    buildDiscarder(logRotator(numToKeepStr:'10' , artifactNumToKeepStr: '30'))
+    disableConcurrentBuilds()
+    timestamps()
+    timeout(time: 30, unit: 'MINUTES')
+    ansiColor('xterm')
+  }
+
+   environment {
+     GIT_COMMIT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+     LC_ALL = "en_US.utf8"
+   }
+
+stages {
+   stage('Build and Publish') {
+     steps {
+        script{
+
+        currentBuild.displayName="AlphaRuleServer-${env.BRANCH_NAME}-b${env.BUILD_NUMBER}-${GIT_COMMIT.substring(0, 8)}"
+
+        sh "./gradlew clean build -x test createDockerfile  copyFilesToDocker --stacktrace"
+        sh "./gradlew buildDockerImage --stacktrace -PprojectVersion=${getVersionTag()} -Ddocker.url=http://atld-devtools02.int.vticloud.com:2375"
+        sh "./gradlew pushDockerImage --stacktrace -PprojectVersion=${getVersionTag()} -Ddocker.url=http://atld-devtools02.int.vticloud.com:2375"
+   }
+  }
+ }
+}
+     post {
+       success {
+        mail bcc: '', body: "Build : ${env.BUILD_NUMBER} - REVISION : ${env.GIT_COMMIT} - (Console URL:<${env.BUILD_URL}console> | Changes URL:<${env.BUILD_URL}changes>) , status: 'Success'", cc: '', from: '', replyTo: '', subject: "Build Success - ${env.JOB_NAME}", to: 'bhagyaraj.desurijayashankar@ventivtech.com, Subhash.ValluruDelhi@ventivtech.com'
+        }
+
+       failure {
+        mail bcc: '', body: "Build : ${env.BUILD_NUMBER} - REVISION : ${env.GIT_COMMIT} - (Console URL:<${env.BUILD_URL}console> | Changes URL:<${env.BUILD_URL}changes>) , status: 'Failure'", cc: '', from: '', replyTo: '', subject: "Build Failure - ${env.JOB_NAME}", to: 'bhagyaraj.desurijayashankar@ventivtech.com, Subhash.ValluruDelhi@ventivtech.com'
+    }
+  }
+}
+
+def getBranchType() {
+  return env.BRANCH_NAME.split('/')[0];
+}
+
+def getBranchDetails() {
+    return (env.BRANCH_NAME.split('/') as List)[1]
+}
+
+def getVersionTag() {
+     return ['hotfix', 'release', 'feature'].contains(getBranchType()) ? "${getBranchDetails()}.${env.BUILD_NUMBER}" : "${env.BRANCH_NAME}_b${env.BUILD_NUMBER}"
+ }
